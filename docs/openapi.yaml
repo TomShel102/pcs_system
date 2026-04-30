@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: PCS API
+  version: 1.1.0
+  description: API vận hành cho hệ thống quản lý bãi xe PCS (bao gồm smart parking layout).
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: PCS-TOKEN
+servers:
+  - url: http://localhost:3000
+paths:
+  /api/auth/login:
+    post:
+      summary: Đăng nhập lấy token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Thành công
+        '401':
+          description: Sai thông tin đăng nhập
+  /health:
+    get:
+      summary: Kiểm tra liveness
+      responses:
+        '200':
+          description: Dịch vụ sống
+  /ready:
+    get:
+      summary: Kiểm tra readiness
+      responses:
+        '200':
+          description: Dịch vụ sẵn sàng xử lý
+        '503':
+          description: Dịch vụ chưa sẵn sàng
+  /api/check-in:
+    post:
+      summary: Ghi nhận xe vào
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license_plate, vehicle_type, guard_in_id]
+              properties:
+                license_plate:
+                  type: string
+                vehicle_type:
+                  type: string
+                  enum: [MOTORBIKE, CAR, SUV, TRUCK]
+                guard_in_id:
+                  type: string
+      responses:
+        '201':
+          description: Thành công
+        '400':
+          description: Dữ liệu không hợp lệ
+        '409':
+          description: Xe đang trong bãi hoặc hết chỗ phù hợp
+  /api/check-out:
+    post:
+      summary: Ghi nhận xe ra và tính tiền
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license_plate, guard_out_id]
+              properties:
+                license_plate:
+                  type: string
+                guard_out_id:
+                  type: string
+                exception_type:
+                  type: string
+                  enum: [LOST_TICKET]
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Thành công
+        '404':
+          description: Không có phiên gửi xe đang hoạt động
+        '409':
+          description: Xung đột giao dịch
+  /api/dashboard-summary:
+    get:
+      summary: Lấy số liệu dashboard
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Thành công
+  /api/active-sessions:
+    get:
+      summary: Lấy danh sách phiên gửi xe đang mở
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Thành công
+  /api/parking-layout:
+    get:
+      summary: Lấy sơ đồ bãi theo khu vực và trạng thái slot
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Thành công
+  /api/slot-suggestion:
+    get:
+      summary: Gợi ý vị trí đỗ theo loại xe
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicle_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [MOTORBIKE, CAR, SUV, TRUCK]
+      responses:
+        '200':
+          description: Thành công
+  /api/monthly-tickets:
+    post:
+      summary: Tạo vé tháng
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license_plate, customer_name, expiration_date]
+              properties:
+                license_plate:
+                  type: string
+                customer_name:
+                  type: string
+                expiration_date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Thành công
+        '409':
+          description: Đã có vé tháng còn hiệu lực
+  /api/monthly-tickets/{license_plate}:
+    get:
+      summary: Tra cứu vé tháng theo biển số
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: license_plate
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Thành công
+        '404':
+          description: Không tìm thấy vé tháng

@@ -1,0 +1,76 @@
+II. ĐỐI VỚI ĐỀ TÀI ỨNG DỤNG (APPLICATION)
+Dành cho các project liên quan đến sensing, vision, detection, traffic control, simulation, IoT, data processing.
+
+Chương 1. Tổng quan đề tài
+Domain: intersection, freeway, parking, driver safety, public transport…
+
+Vấn đề cần giải quyết (clear & measurable)
+
+Mục tiêu & yêu cầu tổng quan
+
+Hạn chế thực tế (camera, ánh sáng, latency, thiết bị)
+
+Chương 2. Cơ sở lý thuyết & Phân tích yêu cầu
+Lý thuyết liên quan:
+
+Computer Vision (YOLO, segmentation, tracking…)
+
+Sensor systems (camera, radar, LiDAR)
+
+Communication (MQTT, V2X…)
+
+Detection models / traffic flow theory (nếu cần)
+
+Phân tích yêu cầu:
+
+Functional requirements (FR) – detect, classify, count, alert…
+
+Non-functional (NFR) – accuracy, latency, reliability
+
+Actors & user scenarios (drivers, TMC, pedestrians…)
+
+Chương 3. Thiết kế hệ thống
+System architecture (pipeline: input → processing → output)
+
+Data flow diagram
+
+Sơ đồ component / module
+
+Any ITS-specific model:
+
+detection → tracking → event
+
+CV pipeline
+
+edge–cloud architecture
+
+Decision logic & algorithms
+
+Chương 4. Hiện thực & Triển khai
+Công cụ sử dụng (Python, CV libs, MQTT, hardware…)
+
+Mô tả các module chính
+
+Screenshot / result images
+
+How design → code mapping
+
+Flowchart thực tế
+
+Chương 5. Kiểm thử – Đánh giá
+Test cases (nhiều bối cảnh: sáng/tối, đông/vắng, occlusion…)
+
+Metrics (accuracy, FPS, latency…)
+
+Hạn chế
+
+Điều kiện triển khai thực tế
+
+Tiềm năng cải tiến
+
+Chương 6. Kết luận & Hướng phát triển
+Summary essence của hệ thống
+
+Ý nghĩa đối với ITS
+
+Hướng mở rộng: scaling, edge computing, integration, dataset, deployment

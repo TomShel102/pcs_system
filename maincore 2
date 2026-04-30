@@ -1,0 +1,258 @@
+# MAINCORE 2: CONTEXT CHO TAI LIEU ERD + FLOWCHART
+
+Tai lieu nay la context chuyen dung de tao:
+1) DATABASE ERD
+2) So do luong nghiep vu (flowchart)
+
+Muc tieu: tai lieu hoa he thong theo goc nhin System Design, khong sa vao chi tiet code UI.
+
+## 1. SCOPE TAI LIEU
+- Pham vi backend nghiep vu core cua PCS + smart parking layout.
+- Uu tien flow: check-in, check-out, dashboard-summary, active-sessions, parking-layout, slot-suggestion.
+- Co bao gom idempotency va race-condition handling o muc logic he thong.
+- Khong mo rong sang microservice/distributed architecture o giai doan nay.
+
+## 2. DATABASE ERD CONTEXT
+
+### 2.1 Bang cot loi can co trong ERD
+1. `users`
+   - id (PK, UUID)
+   - username
+   - password_hash
+   - role (`ADMIN`, `GUARD`)
+   - is_deleted
+
+2. `vehicles`
+   - id (PK, UUID)
+   - license_plate (UNIQUE)
+   - vehicle_type (enum nghiep vu da chuan hoa)
+   - is_deleted
+
+3. `monthly_tickets`
+   - id (PK, UUID)
+   - vehicle_id (FK -> vehicles.id)
+   - customer_name
+   - expiration_date
+   - is_deleted
+
+4. `pricing_config`
+   - id (PK, UUID)
+   - vehicle_type (UNIQUE theo nghiep vu)
+   - free_minutes
+   - day_rate
+   - night_rate
+   - max_daily_fee
+
+5. `parking_sessions`
+   - id (PK, UUID)
+   - vehicle_id (FK -> vehicles.id)
+   - guard_in_id (FK -> users.id)
+   - guard_out_id (FK -> users.id, nullable)
+   - monthly_ticket_id (FK -> monthly_tickets.id, nullable)
+   - slot_id (FK -> parking_slots.id, nullable)
+   - time_in
+   - time_out (nullable)
+   - total_fee (nullable truoc check-out)
+   - exception_type (nullable, vd `LOST_TICKET`)
+   - note (nullable)
+   - is_deleted
+
+6. `parking_areas`
+   - id (PK, UUID)
+   - code (UNIQUE, vd `A`, `B`, `C`)
+   - name
+   - is_active
+   - is_deleted
+
+7. `parking_slots`
+   - id (PK, UUID)
+   - area_id (FK -> parking_areas.id)
+   - slot_code (UNIQUE, vd `A01`, `B03`)
+   - supported_vehicle_type (nullable, null = all)
+   - status (`FREE`, `OCCUPIED`, `MAINTENANCE`)
+   - is_active
+   - is_deleted
+
+8. `api_idempotency`
+   - endpoint
+   - idempotency_key
+   - is_completed
+   - status_code
+   - response_payload
+   - created_at
+   - expires_at
+   - unique key: (endpoint, idempotency_key)
+
+9. `monthly_ticket_renewals`
+   - id (PK, UUID)
+   - monthly_ticket_id (FK -> monthly_tickets.id)
+   - old_expiration_date
+   - new_expiration_date
+   - note (nullable)
+   - changed_at
+
+### 2.2 Quan he can the hien tren ERD
+- `vehicles (1) -> (N) parking_sessions`
+- `users (1) -> (N) parking_sessions` qua `guard_in_id`
+- `users (1) -> (N) parking_sessions` qua `guard_out_id`
+- `vehicles (1) -> (N) monthly_tickets`
+- `monthly_tickets (0..1) -> (N) parking_sessions` (optional gan vao session check-in)
+- `parking_areas (1) -> (N) parking_slots`
+- `parking_slots (1) -> (N) parking_sessions` qua `slot_id`
+- `monthly_tickets (1) -> (N) monthly_ticket_renewals`
+- `pricing_config` tham chieu logic theo `vehicle_type` (logical relation, khong bat buoc FK)
+
+### 2.3 Invariants/Rang buoc bat buoc ghi chu tren ERD
+- Mot xe chi co toi da 1 session dang mo (`time_out IS NULL`) tai moi thoi diem.
+- `vehicles.vehicle_type` chi nhan tap gia tri nghiep vu hop le.
+- `parking_slots.status` chi nhan `FREE`, `OCCUPIED`, `MAINTENANCE`.
+- Khong duoc dat `MAINTENANCE` cho slot dang `OCCUPIED`.
+- Khi transfer slot thanh cong: slot cu -> `FREE`, slot moi -> `OCCUPIED` trong cung transaction.
+- `api_idempotency` dam bao duplicate submit khong tao tac vu trung.
+- Soft-delete duoc su dung o cac bang nghiep vu (`is_deleted`).
+
+## 3. BUSINESS FLOWCHART CONTEXT
+
+### 3.1 Flowchart 01 - Check-in
+Buoc bat buoc:
+1. Nhan request check-in (license_plate, vehicle_type, guard_in_id, idempotency-key)
+2. Validate input + normalize vehicle_type
+3. Kiem tra idempotency:
+   - neu da completed -> replay response
+   - neu in-progress -> bao conflict/phu hop policy
+4. Bat dau transaction
+5. Tim vehicle theo license_plate
+6. Neu chua co vehicle -> tao vehicle moi
+7. Kiem tra session dang mo:
+   - neu co -> rollback + 409
+8. Kiem tra ve thang con han (neu co)
+9. Chon slot trong phu hop theo `vehicle_type` (`FOR UPDATE SKIP LOCKED`)
+10. Reserve slot (`FREE -> OCCUPIED`)
+11. Tao parking_session moi (time_in=NOW, monthly_ticket_id co the null, co `slot_id`)
+12. Mark idempotency completed + luu response
+13. Commit + tra ket qua (bao gom `slotCode`)
+14. Neu loi o bat ky buoc nao -> rollback + rollback idempotency record dang mo
+
+### 3.2 Flowchart 02 - Check-out
+Buoc bat buoc:
+1. Nhan request check-out (license_plate, guard_out_id, exception_type, note, idempotency-key)
+2. Validate input
+3. Kiem tra idempotency:
+   - neu da completed -> replay response
+   - neu in-progress -> conflict/phu hop policy
+4. Bat dau transaction
+5. Tim session dang mo cua xe + lock row (`FOR UPDATE`)
+6. Neu khong tim thay -> rollback + 404
+7. Re-check nghiep vu:
+   - neu `LOST_TICKET` -> tinh phi theo policy phat
+   - neu binh thuong -> tinh phi qua pricingService + pricing_config
+8. Update session (time_out, guard_out_id, total_fee, exception_type, note)
+9. Giai phong slot cua session (`OCCUPIED -> FREE`)
+10. Mark idempotency completed + luu response
+11. Commit + tra invoice
+12. Neu loi -> rollback + rollback idempotency dang mo
+
+### 3.3 Flowchart 03 - Dashboard Summary
+1. Nhan request
+2. Truy van aggregate:
+   - vehicles_in_lot
+   - check_ins_today
+   - check_outs_today
+   - revenue_today
+   - hourly_revenue
+3. Tra response tong hop
+4. Neu loi -> tra message ro rang + status phu hop
+
+### 3.4 Flowchart 04 - Active Sessions
+1. Nhan request
+2. Lay danh sach session dang mo (time_out IS NULL) + thong tin vehicle + `slot_code`
+3. Sort theo time_in giam dan (backend hien tai), UI co the sap xep lai theo muc uu tien van hanh
+4. Tra response de UI render queue van hanh
+
+### 3.5 Flowchart 05 - Parking Layout
+1. Nhan request `GET /api/parking-layout`
+2. Join `parking_areas` + `parking_slots` + active `parking_sessions`
+3. Group theo area
+4. Tinh summary moi khu (`total_slots`, `occupied_slots`, `free_slots`)
+5. Tra response cho UI so do bai
+
+### 3.6 Flowchart 06 - Slot Suggestion
+1. Nhan request `GET /api/slot-suggestion?vehicle_type=...`
+2. Neu thieu `vehicle_type` -> tra message huong dan
+3. Tim slot FREE dau tien phu hop loai xe
+4. Tinh fill-rate tung khu + tao alerts cho khu `>=85%`
+5. Tra response gom `suggestion`, `alerts`, `message`
+
+### 3.7 Flowchart 07 - Slot Maintenance (Lock/Unlock)
+1. Nhan request `PUT /api/slots/:slot_code/maintenance` voi `is_maintenance`
+2. Lock row slot theo `slot_code`
+3. Validate nghiep vu:
+   - Neu slot dang `OCCUPIED` -> khong cho lock/unlock trai phep
+4. Update status:
+   - `is_maintenance=true` -> `MAINTENANCE`
+   - `is_maintenance=false` -> `FREE`
+5. Commit + tra ket qua
+
+### 3.8 Flowchart 08 - Transfer Active Session Slot
+1. Nhan request `PUT /api/sessions/transfer-slot` (license_plate, target_slot_code)
+2. Tim session dang mo cua xe + lock session
+3. Tim slot dich + lock slot dich
+4. Validate:
+   - slot dich phai `FREE`
+   - slot dich phai phu hop `vehicle_type` (neu co constraint)
+   - slot dich khong trung slot hien tai
+5. Giai phong slot cu (`FREE`) neu co
+6. Gan session vao slot moi + set slot moi `OCCUPIED`
+7. Commit + tra ket qua from/to slot
+
+### 3.9 Flowchart 09 - Monthly Ticket Renewal History
+1. Gia han ve thang: `PUT /api/monthly-tickets/:license_plate/renew`
+2. Validate ngay moi > ngay het han hien tai
+3. Update `monthly_tickets.expiration_date`
+4. Insert ban ghi vao `monthly_ticket_renewals`
+5. Co endpoint `GET /api/monthly-tickets/:license_plate/renewals` de tra lich su
+
+## 4. ERROR MATRIX CHO FLOWCHART
+- 400: input invalid / vi pham contract
+- 401/403: khong duoc phep truy cap
+- 404: khong tim thay session/doi tuong can thao tac
+- 409: xung dot du lieu (xe dang trong bai, race-condition, in-progress idempotent, het cho phu hop, slot khong hop le cho thao tac)
+- 429: qua tan suat goi API
+- 500: loi he thong/DB bat thuong
+
+## 5. CAC DIEM PHAI GHI CHU KHI VE SO DO
+- Ghi ro "transaction boundary" trong check-in/check-out.
+- Danh dau cac decision node quan trong:
+  - vehicle ton tai?
+  - session dang mo ton tai?
+  - slot trong phu hop con khong?
+  - lost ticket?
+  - idempotency replay?
+- Danh dau "critical section" cua check-out (`FOR UPDATE`).
+- Danh dau "consistency guarantee": one active session per vehicle.
+- Danh dau "slot lifecycle": `FREE -> OCCUPIED -> FREE`.
+- Danh dau "maintenance lifecycle": `FREE <-> MAINTENANCE` (khong di truc tiep tu `OCCUPIED`).
+
+## 6. DELIVERABLE EXPECTATION
+Khi dung context nay de viet tai lieu, dau ra can co:
+1) 1 ERD day du entity, key, cardinality, constraint notes.
+2) It nhat 9 flowchart rieng:
+   - Check-in
+   - Check-out
+   - Dashboard-summary
+   - Active-sessions
+   - Parking-layout
+   - Slot-suggestion
+   - Slot-maintenance
+   - Transfer-slot
+   - Monthly-ticket-renewal-history
+3) 1 bang error matrix map theo tung endpoint.
+4) API contract snapshot cap nhat endpoint moi:
+   - `GET /api/parking-layout`
+   - `GET /api/slot-suggestion`
+   - `PUT /api/slots/:slot_code/maintenance`
+   - `PUT /api/sessions/transfer-slot`
+   - `PUT /api/monthly-tickets/:license_plate/renew`
+   - `GET /api/monthly-tickets/:license_plate/renewals`
+
+Neu co mau thuan giua code va tai lieu, uu tien xac minh lai code backend hien tai roi cap nhat tai lieu cho dung.
