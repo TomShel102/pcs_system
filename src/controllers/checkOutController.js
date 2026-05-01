@@ -33,6 +33,18 @@ export const checkOut = async (req, res) => {
     }
 
     const result = await runTransaction(async (client) => {
+      const guardResult = await client.query(
+        `SELECT id
+         FROM users
+         WHERE id = $1
+           AND is_deleted = FALSE
+         LIMIT 1`,
+        [guardOutId]
+      );
+      if (guardResult.rows.length === 0) {
+        throw createAppError(400, 'Mã nhân viên ra bãi không hợp lệ');
+      }
+
       // Tìm phiên gửi xe đang mở theo biển số
       const sessionResult = await client.query(
         `SELECT 

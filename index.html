@@ -339,20 +339,6 @@
                                 >
                             </div>
 
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-700 mb-2">Loại Xe</label>
-                                <select 
-                                    id="checkOutVehicleType"
-                                    class="w-full h-12 px-4 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 input-field focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                >
-                                    <option value="">Chọn loại xe</option>
-                                    <option value="MOTORBIKE">Xe Máy</option>
-                                    <option value="CAR">Ô Tô 4 Chỗ</option>
-                                    <option value="SUV">Ô Tô 7 Chỗ</option>
-                                    <option value="TRUCK">Xe Tải</option>
-                                </select>
-                            </div>
-
                             <label class="flex items-center gap-2 text-sm text-slate-700">
                                 <input id="lostTicketCheckbox" type="checkbox" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
                                 Mất vé (phạt cứng 50.000 đ)
@@ -1678,7 +1664,6 @@
             e.preventDefault();
             
             const licensePlate = document.getElementById('checkOutLicensePlate').value.trim().toUpperCase();
-            const vehicleType = document.getElementById('checkOutVehicleType').value;
             const isLostTicket = document.getElementById('lostTicketCheckbox').checked;
             const lostTicketNote = document.getElementById('lostTicketNoteInput').value.trim();
             
@@ -1702,7 +1687,6 @@
                     },
                     body: JSON.stringify({
                         license_plate: licensePlate,
-                        vehicle_type: vehicleType || null,
                         guard_out_id: GUARD_ID,
                         exception_type: isLostTicket ? 'LOST_TICKET' : null,
                         note: isLostTicket ? lostTicketNote : null

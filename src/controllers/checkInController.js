@@ -28,6 +28,18 @@ export const checkIn = async (req, res) => {
     const guardInId = String(req.body.guard_in_id).trim();
 
     const result = await runTransaction(async (client) => {
+      const guardResult = await client.query(
+        `SELECT id
+         FROM users
+         WHERE id = $1
+           AND is_deleted = FALSE
+         LIMIT 1`,
+        [guardInId]
+      );
+      if (guardResult.rows.length === 0) {
+        throw createAppError(400, 'Mã nhân viên vào bãi không hợp lệ');
+      }
+
       // 1. Get or create vehicle
       let vehicleResult = await client.query(
         'SELECT id, vehicle_type FROM vehicles WHERE license_plate = $1 AND is_deleted = false',
@@ -109,6 +121,9 @@ export const checkIn = async (req, res) => {
       } catch (error) {
         if (error?.code === '23505') {
           throw createAppError(409, 'Xe đang trong bãi');
+        }
+        if (error?.code === '23503') {
+          throw createAppError(400, 'Thông tin tham chiếu không hợp lệ (guard hoặc vị trí đỗ)');
         }
         throw error;
       }
